@@ -12,6 +12,13 @@ from economics_crawling import crawl_economics
 from business_crawling import crawl_business
 from engineering_crawling import crawl_engineering
 from science_crawling import crawl_science
+from bio_crawling import crawl_bio
+from ai_crawling import crawl_ai
+from theology_crawling import crawl_theology
+from social_sciences_crawling import crawl_social_sciences
+from music_college_crawling import crawl_music
+from che_college_crawling import crawl_che
+from edu_college_crawling import crawl_edu
 
 # 스케줄 시간 리스트
 SCHEDULED_TIMES = ["10:00, 18:00"]
@@ -25,7 +32,7 @@ openai_api_key = os.getenv("OPENAI_API_KEY")
 MONGO_PATH = os.getenv("MONGO_PATH")
 client = MongoClient(MONGO_PATH)
 db = client["notice-db"]
-collection = db["test_embedded_ec2"]
+collection = db["final_notices"]
 
 
 def save_to_mongo(notices):
@@ -37,14 +44,15 @@ def save_to_mongo(notices):
                 {"department": notice["department"], "title": notice["title"], "date": notice["date"]}
             )
 
-            if existing_notice and "embedding" in existing_notice:
-                # 기존 임베딩 재사용
-                notice["embedding"] = existing_notice["embedding"]
-            else:
-                # 새로운 임베딩 생성
-                embedding = get_text_embedding(notice["context"])
-                notice["embedding"] = embedding
-                print(f"[{notice['department']}] Generated new embedding for: {notice['title']}")
+            if existing_notice:
+                # 기존 데이터가 있으면 메시지만 출력하고 업데이트를 건너뜀
+                print(f"[{notice['department']}] Already existing: {notice['title']}")
+                continue
+
+            # 새로운 임베딩 생성
+            embedding = get_text_embedding(notice["context"])
+            notice["embedding"] = embedding
+            print(f"[{notice['department']}] Generated new embedding for: {notice['title']}")
 
             # MongoDB에 삽입 또는 업데이트
             collection.update_one(
@@ -89,6 +97,17 @@ def main():
     #     time.sleep(1)
 
     crawl_and_store("문과대학", crawl_liberal_arts)
+    crawl_and_store("상경대학", crawl_economics)
+    crawl_and_store("경영대학", crawl_business)
+    crawl_and_store("공과대학", crawl_engineering)
+    crawl_and_store("이과대학", crawl_science)
+    crawl_and_store("생명시스템대학", crawl_bio)
+    crawl_and_store("인공지능융합대학", crawl_ai)
+    crawl_and_store("신과대학", crawl_theology)
+    crawl_and_store("사회과학대학", crawl_social_sciences)
+    crawl_and_store("음악대학", crawl_music)
+    crawl_and_store("생활과학대학", crawl_che)
+    crawl_and_store("교육과학대학", crawl_edu)
 
 if __name__ == "__main__":
     main()

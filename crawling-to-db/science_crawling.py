@@ -1,54 +1,118 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import boto3
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드
+load_dotenv()
+
+# 환경 변수에서 S3 설정 불러오기
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+AWS_REGION = os.getenv("AWS_REGION")
+BUCKET_NAME = os.getenv("BUCKET_NAME")
+
+# AWS S3 클라이언트 생성
+s3 = boto3.client(
+    's3',
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION
+)
 
 def scrape_page_science(page_number):
     """이과대학 공지사항에서 특정 페이지의 데이터를 크롤링"""
     base_url = "http://science.yonsei.ac.kr"
     notice_url = f"{base_url}/community/notice"
     url = f"{notice_url}?p={page_number}"
-
+    
     response = requests.get(url)
-    response.raise_for_status()  # 요청 성공 확인
+    response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
 
     all_notices = []
 
-    for row in soup.select('tr'):  # 각 공지사항이 있는 행 선택
+    for row in soup.select('tr'):
         title_tag = row.select_one('td.nxb-list-table__title a')
         date_tag = row.select_one('td.nxb-list-table__date')
 
-        if title_tag and date_tag:  # 제목과 날짜가 있는지 확인
+        if title_tag and date_tag:
             title = title_tag.get_text(strip=True)
             link = urljoin(base_url, title_tag['href'])  # 절대 경로로 변환
             date = date_tag.get_text(strip=True)
-
-            # 공지사항의 상세 페이지로 이동하여 내용 크롤링
-            context = scrape_notice_context(link)
+            context, images = scrape_notice_context(link, title)
 
             all_notices.append({
                 'department': '이과대학',
                 'title': title,
                 'date': date,
                 'link': link,
-                'context': context
+                'context': context,
+                'images': ", ".join(images)  # S3 이미지 URL을 쉼표로 구분하여 저장
             })
 
     return all_notices
 
-def scrape_notice_context(link):
-    """이과대학 공지사항 상세 페이지에서 내용을 크롤링"""
+def scrape_notice_context(link, title):
+    """이과대학 공지사항 상세 페이지에서 내용을 크롤링하고 이미지를 S3에 업로드"""
     response = requests.get(link)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    # 상세 내용이 담긴 <div class="editor-contents">에서 텍스트 추출
     context_tag = soup.select_one('div.editor-contents')
-    return context_tag.get_text(strip=True) if context_tag else "내용 없음"
+    context = context_tag.get_text(strip=True) if context_tag else "내용 없음"
+
+    # 이미지 업로드
+    image_tags = soup.select('div.editor-contents img')
+    image_urls = []
+    for idx, img_tag in enumerate(image_tags, start=1):  # 번호 추가
+        img_src = img_tag.get('src')
+        if img_src:
+            img_url = urljoin(link, img_src)  # 상대 경로를 절대 경로로 변환
+            s3_image_url = upload_image_to_s3(img_url, title, idx)
+            if s3_image_url:
+                image_urls.append(s3_image_url)
+
+    return context, image_urls
+
+def upload_image_to_s3(img_url, title, idx):
+    """이미지를 다운로드하고 S3에 업로드 (중복 업로드 방지)"""
+    try:
+        response = requests.get(img_url, stream=True)
+        response.raise_for_status()
+
+        # 이미지 파일명 생성: title + 번호 + 확장자
+        ext = os.path.splitext(img_url)[-1]
+        safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)
+        s3_image_key = f"images/{safe_title}_{idx}{ext}"
+
+        # S3에 파일 존재 여부 확인
+        try:
+            s3.head_object(Bucket=BUCKET_NAME, Key=s3_image_key)
+            print(f"이미 존재하는 파일: {s3_image_key}")
+            return f"https://{BUCKET_NAME}.s3.amazonaws.com/{s3_image_key}"
+        except s3.exceptions.ClientError as e:
+            if e.response['Error']['Code'] != '404':
+                print(f"S3 객체 확인 중 에러 발생: {e}")
+                return None
+            # 파일이 존재하지 않으면 업로드 진행
+
+        # S3 업로드
+        s3.upload_fileobj(response.raw, BUCKET_NAME, s3_image_key)
+        s3_image_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{s3_image_key}"
+        print(f"이미지 업로드 성공: {s3_image_url}")
+        return s3_image_url
+
+    except Exception as e:
+        print(f"이미지 업로드 실패: {img_url}, 에러: {e}")
+        return None
 
 def crawl_science():
     """이과대학의 모든 공지사항 데이터를 반환"""
     all_notices = []
-    for page in range(1, 6):  # 1페이지부터 5페이지까지 크롤링
+    for page in range(1, 6):
+        print(f"이과대학 {page}페이지 크롤링 중...")
         all_notices.extend(scrape_page_science(page))
     return all_notices

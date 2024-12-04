@@ -22,9 +22,9 @@ s3 = boto3.client(
     region_name=AWS_REGION
 )
 
-def scrape_page_engineering(offset):
-    """공과대학 공지사항에서 특정 페이지의 데이터를 크롤링"""
-    base_url = "https://engineering.yonsei.ac.kr/engineering/board/notice.do"
+def scrape_page_bio(offset):
+    """생명시스템대학 공지사항에서 특정 페이지의 데이터를 크롤링"""
+    base_url = "https://bio.yonsei.ac.kr/bio/board/notice.do"
     params = {
         'mode': 'list',
         'articleLimit': 10,
@@ -48,7 +48,7 @@ def scrape_page_engineering(offset):
             context, images = scrape_notice_context(link, title)
 
             all_notices.append({
-                'department': '공과대학',
+                'department': '생명시스템대학',
                 'title': title,
                 'date': date,
                 'link': link,
@@ -59,16 +59,16 @@ def scrape_page_engineering(offset):
     return all_notices
 
 def scrape_notice_context(link, title):
-    """공과대학 공지사항 상세 페이지에서 내용을 크롤링하고 이미지를 S3에 업로드"""
+    """생명시스템대학 공지사항 상세 페이지에서 내용을 크롤링하고 이미지를 S3에 업로드"""
     response = requests.get(link)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
 
-    context_tag = soup.select_one('div.fr-view')
+    context_tag = soup.select_one('dd > div.fr-view')
     context = context_tag.get_text(strip=True) if context_tag else "내용 없음"
 
     # 이미지 업로드
-    image_tags = soup.select('div.fr-view img')
+    image_tags = soup.select('dd > div.fr-view img')
     image_urls = []
     for idx, img_tag in enumerate(image_tags, start=1):  # 번호 추가
         img_src = img_tag.get('src')
@@ -112,11 +112,11 @@ def upload_image_to_s3(img_url, title, idx):
         print(f"이미지 업로드 실패: {img_url}, 에러: {e}")
         return None
 
-def crawl_engineering():
-    """공과대학의 모든 공지사항 데이터를 반환"""
+def crawl_bio():
+    """생명시스템대학의 모든 공지사항 데이터를 반환"""
     all_notices = []
     for page in range(5):
         offset = page * 10
-        print(f"공과대학 {page + 1}페이지 크롤링 중...")
-        all_notices.extend(scrape_page_engineering(offset))
+        print(f"생명시스템대학 {page + 1}페이지 크롤링 중...")
+        all_notices.extend(scrape_page_bio(offset))
     return all_notices
