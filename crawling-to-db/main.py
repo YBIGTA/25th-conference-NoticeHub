@@ -75,18 +75,20 @@ def crawl_and_store(department_name, crawl_function):
     print(f"[{department_name}] 모든 공지사항이 저장되었습니다. (소요 시간: {elapsed_time:.2f}초)")
 
 def main():
-    # 스케줄링을 위한 래퍼 함수 정의
-    for scheduled_time in SCHEDULED_TIMES:
-        schedule.every().day.at(scheduled_time).do(crawl_and_store, "문과대학", crawl_liberal_arts)
-        schedule.every().day.at(scheduled_time).do(crawl_and_store, "상경대학", crawl_economics)
-        schedule.every().day.at(scheduled_time).do(crawl_and_store, "경영대학", crawl_business)
-        schedule.every().day.at(scheduled_time).do(crawl_and_store, "공과대학", crawl_engineering)
-        schedule.every().day.at(scheduled_time).do(crawl_and_store, "이과대학", crawl_science)
-    print("스케줄러가 시작되었습니다. Ctrl+C로 중지할 수 있습니다.")
+    # # 스케줄링을 위한 래퍼 함수 정의
+    # for scheduled_time in SCHEDULED_TIMES:
+    #     schedule.every().day.at(scheduled_time).do(crawl_and_store, "문과대학", crawl_liberal_arts)
+    #     schedule.every().day.at(scheduled_time).do(crawl_and_store, "상경대학", crawl_economics)
+    #     schedule.every().day.at(scheduled_time).do(crawl_and_store, "경영대학", crawl_business)
+    #     schedule.every().day.at(scheduled_time).do(crawl_and_store, "공과대학", crawl_engineering)
+    #     schedule.every().day.at(scheduled_time).do(crawl_and_store, "이과대학", crawl_science)
+    # print("스케줄러가 시작되었습니다. Ctrl+C로 중지할 수 있습니다.")
 
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    # while True:
+    #     schedule.run_pending()
+    #     time.sleep(1)
+
+    crawl_and_store("문과대학", crawl_liberal_arts)
 
 if __name__ == "__main__":
     main()

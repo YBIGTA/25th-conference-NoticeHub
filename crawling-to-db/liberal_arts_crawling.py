@@ -1,6 +1,26 @@
+import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
+import boto3
+from dotenv import load_dotenv
+
+# .env 파일에서 환경 변수 로드
+load_dotenv()
+
+# 환경 변수에서 S3 설정 불러오기
+AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY")
+AWS_SECRET_KEY = os.getenv("AWS_SECRET_KEY")
+AWS_REGION = os.getenv("AWS_REGION")
+BUCKET_NAME = os.getenv("BUCKET_NAME")
+
+# AWS S3 클라이언트 생성
+s3 = boto3.client(
+    's3',
+    aws_access_key_id=AWS_ACCESS_KEY,
+    aws_secret_access_key=AWS_SECRET_KEY,
+    region_name=AWS_REGION
+)
 
 def scrape_page_liberal_arts(offset):
     """문과대학 공지사항에서 특정 페이지의 데이터를 크롤링"""
@@ -25,31 +45,66 @@ def scrape_page_liberal_arts(offset):
             title = title_tag.get_text(strip=True).replace("[공지]", "").strip()
             link = urljoin(base_url, title_tag['href'])
             date = "20" + td_tags[-1].get_text(strip=True)
-            context = scrape_notice_context(link)
+            context, images = scrape_notice_context(link, title)
 
             all_notices.append({
                 'department': '문과대학',
                 'title': title,
                 'date': date,
                 'link': link,
-                'context': context
+                'context': context,
+                'images': ", ".join(images)  # S3 이미지 URL을 쉼표로 구분하여 저장
             })
 
     return all_notices
 
-def scrape_notice_context(link):
-    """문과대학 공지사항 상세 페이지에서 내용을 크롤링"""
+def scrape_notice_context(link, title):
+    """문과대학 공지사항 상세 페이지에서 내용을 크롤링하고 이미지를 S3에 업로드"""
     response = requests.get(link)
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
 
     context_tag = soup.select_one('dd .fr-view')
-    return context_tag.get_text(strip=True) if context_tag else "내용 없음"
+    context = context_tag.get_text(strip=True) if context_tag else "내용 없음"
+
+    # 이미지 업로드
+    image_tags = soup.select('#jwxe_main_content img')
+    image_urls = []
+    for idx, img_tag in enumerate(image_tags, start=1):  # 이미지 번호 추가
+        img_src = img_tag.get('src')
+        if img_src:
+            img_url = urljoin(link, img_src)  # 상대 경로를 절대 경로로 변환
+            s3_image_url = upload_image_to_s3(img_url, title, idx)
+            if s3_image_url:
+                image_urls.append(s3_image_url)
+    
+    return context, image_urls
+
+def upload_image_to_s3(img_url, title, idx):
+    """이미지를 다운로드하고 S3에 업로드"""
+    try:
+        response = requests.get(img_url, stream=True)
+        response.raise_for_status()
+        
+        # 이미지 파일명 생성: title + 번호 + 확장자
+        ext = os.path.splitext(img_url)[-1]  # 확장자 추출 (.png, .jpg 등)
+        safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)  # 파일명에 허용되지 않는 문자는 "_"로 대체
+        s3_image_key = f"images/{safe_title}_{idx}{ext}"
+
+        # S3 업로드
+        s3.upload_fileobj(response.raw, BUCKET_NAME, s3_image_key)
+        s3_image_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{s3_image_key}"
+        print(f"이미지 업로드 성공: {s3_image_url}")
+        return s3_image_url
+    except Exception as e:
+        print(f"이미지 업로드 실패: {img_url}, 에러: {e}")
+        return None
 
 def crawl_liberal_arts():
     """문과대학의 모든 공지사항 데이터를 반환"""
     all_notices = []
     for page in range(5):
         offset = page * 10
+        print(f"문과대학 {page + 1}페이지 크롤링 중...")
         all_notices.extend(scrape_page_liberal_arts(offset))
     return all_notices
