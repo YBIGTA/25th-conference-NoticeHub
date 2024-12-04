@@ -81,21 +81,33 @@ def scrape_notice_context(link, title):
     return context, image_urls
 
 def upload_image_to_s3(img_url, title, idx):
-    """이미지를 다운로드하고 S3에 업로드"""
+    """이미지를 다운로드하고 S3에 업로드 (중복 업로드 방지)"""
     try:
         response = requests.get(img_url, stream=True)
         response.raise_for_status()
-        
+
         # 이미지 파일명 생성: title + 번호 + 확장자
         ext = os.path.splitext(img_url)[-1]  # 확장자 추출 (.png, .jpg 등)
         safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)  # 파일명에 허용되지 않는 문자는 "_"로 대체
         s3_image_key = f"images/{safe_title}_{idx}{ext}"
+
+        # S3에 파일 존재 여부 확인
+        try:
+            s3.head_object(Bucket=BUCKET_NAME, Key=s3_image_key)
+            print(f"이미 존재하는 파일: {s3_image_key}")
+            return f"https://{BUCKET_NAME}.s3.amazonaws.com/{s3_image_key}"
+        except s3.exceptions.ClientError as e:
+            if e.response['Error']['Code'] != '404':
+                print(f"S3 객체 확인 중 에러 발생: {e}")
+                return None
+            # 파일이 존재하지 않으면 업로드 진행
 
         # S3 업로드
         s3.upload_fileobj(response.raw, BUCKET_NAME, s3_image_key)
         s3_image_url = f"https://{BUCKET_NAME}.s3.amazonaws.com/{s3_image_key}"
         print(f"이미지 업로드 성공: {s3_image_url}")
         return s3_image_url
+
     except Exception as e:
         print(f"이미지 업로드 실패: {img_url}, 에러: {e}")
         return None
