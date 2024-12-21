@@ -1,0 +1,7 @@
+byaldi
+langchain
+langchain_community
+langchain_anthropic
+pypdf
+langchain-chroma
+langchain_openai
