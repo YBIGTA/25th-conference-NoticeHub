@@ -81,7 +81,7 @@ def scrape_notice_context(link):
     
     return context
 
-def crawl_economics():
+def crawl_economics_notice():
     """경제학과의 모든 공지사항 데이터를 반환"""
     all_notices = []
     for page in range(5):  # 1페이지부터 5페이지까지 크롤링
