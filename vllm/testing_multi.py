@@ -13,6 +13,7 @@ from byaldi.objects import Result
 import logging
 import sys
 import json
+from pymongo import MongoClient
 # Optional langchain integration
 try:
     from byaldi.integrations import ByaldiLangChainRetriever
@@ -24,6 +25,12 @@ import logging
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# MongoDB 설정
+MONGO_PATH = os.getenv("MONGO_PATH")
+client = MongoClient(MONGO_PATH)
+db = client["notice-db"]
+collection = db["final_notices"]
 
 # S3 클라이언트 설정
 s3_client = boto3.client(
@@ -323,6 +330,49 @@ class MultiModalRAG(RAGMultiModalModel):
             logger.error(f"인덱싱 중 오류 발생: {str(e)}")
             raise
 
+def update_mongodb(collection, index_info):
+    """
+    MongoDB 데이터를 업데이트하는 함수.
+    특정 `images` 필드를 기준으로 데이터를 검색하여 embedding과 기타 데이터를 추가.
+
+    Args:
+        collection: MongoDB 컬렉션
+        index_info: 생성된 인덱스 정보 (doc_id, embedding, metadata, status 포함)
+    """
+    try:
+        for record in index_info:
+            # 이미지 파일 이름을 기준으로 기존 document 검색
+            image_filename = record["metadata"].get("filename")
+            if not image_filename:
+                logger.warning("메타데이터에 filename이 없습니다. 건너뜁니다.")
+                continue
+            
+            # MongoDB에서 해당하는 document 찾기
+            doc = collection.find_one({"images": "https://noticehub.s3.amazonaws.com/images/{image_filename}"})
+            if not doc:
+                logger.warning(f"'{image_filename}'을 포함하는 document를 찾을 수 없습니다. 건너뜁니다.")
+                continue
+            
+            # 업데이트할 데이터
+            update_data = {
+                "embedding": record["embedding"],
+                "metadata": record["metadata"],
+                "status": record["status"]
+            }
+            
+            # MongoDB document 업데이트
+            collection.update_one(
+                {"_id": doc["_id"]},  # 해당 document의 `_id` 기준
+                {"$set": update_data}
+            )
+            
+            logger.info(f"Document 업데이트 완료: {doc["_id"]} (이미지 파일: {image_filename})")
+    
+    except Exception as e:
+        logger.error(f"MongoDB 업데이트 중 오류 발생: {str(e)}")
+        raise
+
+
 def main():
     try:
         # 1. 명령줄 인자로 S3 URL 리스트 받기
@@ -340,7 +390,6 @@ def main():
             logger.error("JSON 파싱 중 오류 발생")
             sys.exit(1)
 
-        
         # 3. 테스트용 이미지 디렉토리의 모든 이미지 파일 찾기
         image_dir = "images"
         for url in s3_urls:
@@ -350,15 +399,15 @@ def main():
             except Exception as e:
                 logger.error(f"S3에서 이미지 다운로드 중 오류 발생 ({url}): {str(e)}")
                 continue
-        
+
         image_paths = []
         for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif']:
             image_paths.extend(Path(image_dir).glob(ext))
-        
+
         if not image_paths:
             logger.error(f"{image_dir} 디렉토리에 이미지 파일이 없습니다.")
             return
-        
+
         # 4. 이미지와 메타데이터 준비
         images = []
         metadata = []
@@ -374,26 +423,31 @@ def main():
             except Exception as e:
                 logger.error(f"이미지 로드 중 오류 발생 ({path}): {str(e)}")
                 continue
-        
+
         if not images:
             logger.error("처리할 이미지가 없습니다.")
             return
+
         # 2. RAG 모델 초기화
         rag = MultiModalRAG()
         logger.info("RAG 모델 호출 중...")
+
         # 4. 인덱스 생성 및 결과 반환
         logger.info(f"총 {len(images)}개 이미지 인덱싱 시작...")
         index_info = rag.create_index(images, metadata, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
-        
+
         logger.info("인덱싱 완료")
         logger.info(f"생성된 인덱스 정보: {index_info}")
-        
-        return index_info
-        
+
+        # MongoDB 업데이트
+        logger.info("MongoDB 업데이트 시작...")
+        update_mongodb(collection, index_info)
+        logger.info("MongoDB 업데이트 완료")
+
     except Exception as e:
         logger.error(f"처리 중 오류 발생: {str(e)}")
         raise
 
+
 if __name__ == "__main__":
     main()
-    
