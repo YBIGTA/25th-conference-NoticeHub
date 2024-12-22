@@ -37,7 +37,7 @@ try:
     
     mongo_client = MongoClient(mongo_path)
     db = mongo_client["notice-db"]
-    collection = db["test_embedded"]
+    collection = db["final_notices"]
     
     # OpenAI Embeddings 초기화
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -45,11 +45,14 @@ try:
     
     # Vector Store 초기화
     vector_store = MongoDBAtlasVectorSearch(
-        collection=collection,
-        embedding=embeddings,
-        index_name="vector_index",
-        text_key="context" 
-    )
+            collection=collection,
+            embedding=embeddings,
+            index_name="vector_index",
+            text_key="context",
+            embedding_key="embedding",
+            metadata_field_keys=["title", "department", "date", "link"],
+            relevance_score_fn = "cosine"
+        )
     logger.info("Vector store initialized")
 
 except Exception as e:
@@ -60,53 +63,28 @@ except Exception as e:
 PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
     (
         "system",
-        """You are an AI assistant specializing in Question-Answering (QA) tasks within a Retrieval-Augmented Generation (RAG) system. 
-Your primary mission is to answer questions based on provided context or chat history.
-Ensure your response is concise and directly addresses the question without any additional narration.
+        """You are a helpful assistant answering questions about university notices.
+You must respond in Korean language.
 
-###
+Instructions:
+1. Answer based ONLY on the provided context or chat history
+2. Be concise and direct
+3. Include specific details (dates, numbers, names)
+4. Always cite your source URL
+5. Response must be in Korean
 
-You may consider the previous conversation history to answer the question.
+Format:
+[한국어로 된 간단명료한 답변과 구체적인 정보]
 
-# Here's the previous conversation history:
-{chat_history}
+출처:
+- [공지사항 URL]
 
-###
+If you can't find the answer in the context or chat history, say "해당 질문에 대한 충분한 정보가 없습니다."
 
-Your final answer should be written concisely (but include important numerical values, technical terms, jargon, and names), followed by the source of the information.
+Previous chat history: {chat_history}
 
-# Steps
-
-1. Carefully read and understand the context provided.
-2. Identify the key information related to the question within the context.
-3. Formulate a concise answer based on the relevant information.
-4. Ensure your final answer directly addresses the question.
-5. List the source of the answer in bullet points, which must be a file name (with a page number) or URL from the context. Omit if the answer is based on previous conversation or if the source cannot be found.
-
-# Output Format:
-[Your final answer here, with numerical values, technical terms, jargon, and names in their original language]
-
-**Source**(Optional)
-- (Source of the answer, must be a file name(with a page number) or URL from the context. Omit if the answer is based on previous conversation or can't find the source.)
-- (list more if there are multiple sources)
-- ...
-
-###
-
-Remember:
-- It's crucial to base your answer solely on the **provided context** or **chat history**. 
-- DO NOT use any external knowledge or information not present in the given materials.
-- If a user asks based on the previous conversation, but if there's no previous conversation or not enough information, you should answer that you don't know.
-
-###
-
-# Here is the user's question:
-{question}
-
-# Here is the context that you should use to answer the question:
-{context}
-
-# Your final answer to the user's question:"""
+Question: {question}
+Context: {context}"""
     ),
     MessagesPlaceholder(variable_name="chat_history"),
     ("human", "{question}"),
