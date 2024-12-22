@@ -6,10 +6,13 @@ from typing import Any, Dict, List, Optional, Union
 import shutil  # 이 줄 추가
 import torch
 from PIL import Image
-
+import boto3
+from botocore.exceptions import NoCredentialsError, ClientError
 from byaldi.colpali import ColPaliModel
 from byaldi.objects import Result
-
+import logging
+import sys
+import json
 # Optional langchain integration
 try:
     from byaldi.integrations import ByaldiLangChainRetriever
@@ -21,6 +24,69 @@ import logging
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# S3 클라이언트 설정
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+    aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+)
+
+
+def parse_s3_url(s3_url: str):
+    """
+    S3 URL에서 버킷 이름과 객체 키를 추출.
+    Args:
+        s3_url (str): S3 URL (예: s3://bucket-name/path/to/object)
+    Returns:
+        tuple: (bucket_name, object_key)
+    """
+    if not s3_url.startswith("s3://"):
+        raise ValueError(f"Invalid S3 URL: {s3_url}")
+    
+    parts = s3_url[5:].split("/", 1)
+    if len(parts) < 2:
+        raise ValueError(f"Invalid S3 URL format: {s3_url}")
+    
+    bucket_name, object_key = parts[0], parts[1]
+    return bucket_name, object_key
+
+
+def download_from_s3(s3_url: str, download_dir: str = "images"):
+    """
+    S3 URL로부터 이미지를 다운로드하여 로컬 디렉토리에 저장.
+    
+    Args:
+        s3_url: S3 URL (예: https://your-bucket.s3.amazonaws.com/path/to/image.jpg)
+        download_dir: 이미지 저장 디렉토리
+    """
+    try:
+        # URL에서 버킷 이름과 키 추출
+        # S3 URL 파싱
+        bucket_name, object_key = parse_s3_url(s3_url)
+
+        # 다운로드 디렉토리 확인 및 생성
+        os.makedirs(download_dir, exist_ok=True)
+
+        # 로컬 파일 경로
+        local_file_path = os.path.join(download_dir, os.path.basename(object_key))
+
+        # S3에서 파일 다운로드
+        logger.info(f"Downloading {object_key} from bucket {bucket_name} to {local_file_path}")
+        s3_client.download_file(bucket_name, object_key, local_file_path)
+
+        logger.info(f"File saved to {local_file_path}")
+        return local_file_path
+    
+    except NoCredentialsError:
+        logger.error("AWS credentials not found")
+        raise Exception("AWS credentials not found")
+    except ClientError as e:
+        logger.error(f"Failed to download file from S3: {e}")
+        raise Exception(f"Failed to download file from S3: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise Exception(f"Unexpected error: {e}")
 
 class RAGMultiModalModel:
     """
@@ -51,7 +117,7 @@ class RAGMultiModalModel:
         cls,
         pretrained_model_name_or_path: Union[str, Path],
         index_root: str = ".byaldi",
-        device: str = "cuda",
+        device: str = None,
         verbose: int = 1,
     ):
         """Load a ColPali model from a pre-trained checkpoint.
@@ -64,12 +130,15 @@ class RAGMultiModalModel:
             cls (RAGMultiModalModel): The current instance of RAGMultiModalModel, with the model initialized.
         """
         instance = cls()
+         # 디바이스 설정 (기본값: "cpu", GPU가 있으면 "cuda")
+        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         instance.model = ColPaliModel.from_pretrained(
             pretrained_model_name_or_path,
             index_root=index_root,
             device=device,
             verbose=verbose,
         )
+        logger.info(f"모델이 {device}에서 로드되었습니다.")
         return instance
 
     @classmethod
@@ -77,7 +146,7 @@ class RAGMultiModalModel:
         cls,
         index_path: Union[str, Path],
         index_root: str = ".byaldi",
-        device: str = "cuda",
+        device: str = None,
         verbose: int = 1,
     ):
         """Load an Index and the associated ColPali model from an existing document index.
@@ -90,11 +159,12 @@ class RAGMultiModalModel:
             cls (RAGMultiModalModel): The current instance of RAGMultiModalModel, with the model and index initialized.
         """
         instance = cls()
+        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         index_path = Path(index_path)
         instance.model = ColPaliModel.from_index(
             index_path, index_root=index_root, device=device, verbose=verbose
         )
-
+        logger.info(f"모델이 {device}에서 로드되었습니다.")
         return instance
 
     def index(
@@ -170,7 +240,7 @@ class MultiModalRAG(RAGMultiModalModel):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             # 환경 변수 로드
-            load_dotenv()
+            load_dotenv(dotenv_path="/app/.env")
             
             # 환경 변수 설정
             os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN")
@@ -255,11 +325,32 @@ class MultiModalRAG(RAGMultiModalModel):
 
 def main():
     try:
-        # 1. RAG 모델 초기화
-        rag = MultiModalRAG()
+        # 1. 명령줄 인자로 S3 URL 리스트 받기
+        if len(sys.argv) < 2:
+            logger.error("S3 URL 리스트가 전달되지 않았습니다.")
+            print("Usage: python script_name.py <s3_url1> <s3_url2> ...")
+            sys.exit(1)
+
+        # JSON 배열 파싱
+        try:
+            s3_urls = json.loads(sys.argv[1])
+            if not isinstance(s3_urls, list):
+                raise ValueError("JSON 데이터는 배열 형식이어야 합니다.")
+        except json.JSONDecodeError as e:
+            logger.error("JSON 파싱 중 오류 발생")
+            sys.exit(1)
+
         
-        # 2. 테스트용 이미지 디렉토리의 모든 이미지 파일 찾기
+        # 3. 테스트용 이미지 디렉토리의 모든 이미지 파일 찾기
         image_dir = "images"
+        for url in s3_urls:
+            try:
+                # S3 URL로부터 이미지 다운로드
+                download_from_s3(url, download_dir=image_dir)
+            except Exception as e:
+                logger.error(f"S3에서 이미지 다운로드 중 오류 발생 ({url}): {str(e)}")
+                continue
+        
         image_paths = []
         for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif']:
             image_paths.extend(Path(image_dir).glob(ext))
@@ -268,7 +359,7 @@ def main():
             logger.error(f"{image_dir} 디렉토리에 이미지 파일이 없습니다.")
             return
         
-        # 3. 이미지와 메타데이터 준비
+        # 4. 이미지와 메타데이터 준비
         images = []
         metadata = []
         for idx, path in enumerate(image_paths):
@@ -287,7 +378,9 @@ def main():
         if not images:
             logger.error("처리할 이미지가 없습니다.")
             return
-        
+        # 2. RAG 모델 초기화
+        rag = MultiModalRAG()
+        logger.info("RAG 모델 호출 중...")
         # 4. 인덱스 생성 및 결과 반환
         logger.info(f"총 {len(images)}개 이미지 인덱싱 시작...")
         index_info = rag.create_index(images, metadata, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
