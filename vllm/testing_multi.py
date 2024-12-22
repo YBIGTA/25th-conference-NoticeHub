@@ -318,7 +318,7 @@ class MultiModalRAG(RAGMultiModalModel):
                 
                 result.append({
                     "doc_id": str(idx),
-                    "embedding": embedding_list,
+                    "image_embedding": embedding_list,
                     "metadata": image_metadata,
                     "status": "indexed"
                 })
@@ -337,7 +337,7 @@ def update_mongodb(collection, index_info):
 
     Args:
         collection: MongoDB 컬렉션
-        index_info: 생성된 인덱스 정보 (doc_id, embedding, metadata, status 포함)
+        index_info: 생성된 인덱스 정보 (doc_id, image_embedding, metadata, status 포함)
     """
     try:
         for record in index_info:
@@ -348,16 +348,15 @@ def update_mongodb(collection, index_info):
                 continue
             
             # MongoDB에서 해당하는 document 찾기
-            doc = collection.find_one({"images": "https://noticehub.s3.amazonaws.com/images/{image_filename}"})
+            doc = collection.find_one({"images": f"https://noticehub.s3.amazonaws.com/images/{image_filename}"})
             if not doc:
                 logger.warning(f"'{image_filename}'을 포함하는 document를 찾을 수 없습니다. 건너뜁니다.")
                 continue
             
             # 업데이트할 데이터
             update_data = {
-                "embedding": record["embedding"],
-                "metadata": record["metadata"],
-                "status": record["status"]
+                "image_embedding": record["image_embedding"],
+                "metadata": record["metadata"]
             }
             
             # MongoDB document 업데이트
