@@ -89,7 +89,7 @@ def upload_image_to_s3(img_url, title, idx):
         # 이미지 파일명 생성: title + 번호 + 확장자
         ext = os.path.splitext(img_url)[-1]
         safe_title = "".join(c if c.isalnum() or c in " _-" else "_" for c in title)
-        s3_image_key = f"images/university_college/{safe_title}_{idx}{ext}"
+        s3_image_key = f"images/{safe_title}_{idx}{ext}"
 
         # S3에 파일 존재 여부 확인
         try:
