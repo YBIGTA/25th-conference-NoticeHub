@@ -355,8 +355,7 @@ def update_mongodb(collection, index_info):
             
             # 업데이트할 데이터
             update_data = {
-                "image_embedding": record["image_embedding"],
-                "metadata": record["metadata"]
+                "image_embedding": record["image_embedding"]
             }
             
             # MongoDB document 업데이트
@@ -365,7 +364,7 @@ def update_mongodb(collection, index_info):
                 {"$set": update_data}
             )
             
-            logger.info(f"Document 업데이트 완료: {doc["_id"]} (이미지 파일: {image_filename})")
+            logger.info(f"Document 업데이트 완료: {doc['_id']} (이미지 파일: {image_filename})")
     
     except Exception as e:
         logger.error(f"MongoDB 업데이트 중 오류 발생: {str(e)}")
@@ -436,7 +435,7 @@ def main():
         index_info = rag.create_index(images, metadata, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
 
         logger.info("인덱싱 완료")
-        logger.info(f"생성된 인덱스 정보: {index_info}")
+        # logger.info(f"생성된 인덱스 정보: {index_info}")
 
         # MongoDB 업데이트
         logger.info("MongoDB 업데이트 시작...")
