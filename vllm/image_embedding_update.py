@@ -13,7 +13,6 @@ from byaldi.objects import Result
 import logging
 import sys
 import json
-from io import BytesIO
 from pymongo import MongoClient
 # Optional langchain integration
 try:
@@ -26,9 +25,6 @@ import logging
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# 환경 변수 로드
-load_dotenv()
 
 # MongoDB 설정
 MONGO_PATH = os.getenv("MONGO_PATH")
@@ -43,48 +39,58 @@ s3_client = boto3.client(
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
 
-def parse_s3_object_url(s3_object_url: str):
+def get_all_s3_urls(bucket_name: str, prefix: str = "") -> List[str]:
     """
-    S3 객체의 HTTPS URL에서 버킷 이름과 객체 키를 추출합니다.
+    S3 버킷의 특정 폴더(prefix)에 있는 모든 객체의 URL 리스트를 반환.
     
     Args:
-        s3_object_url (str): S3 객체의 HTTPS URL (예: https://bucket-name.s3.amazonaws.com/path/to/image.jpg)
+        bucket_name (str): S3 버킷 이름.
+        prefix (str): S3 객체 키의 접두사(폴더 경로).
     
     Returns:
-        tuple: (bucket_name, object_key)
+        List[str]: S3 객체의 URL 리스트.
     """
-    if not s3_object_url.startswith("https://"):
-        raise ValueError(f"Invalid S3 URL: {s3_object_url}")
-    
-    # 'https://' 이후의 부분을 추출
-    url_body = s3_object_url[8:]
-    
-    # 버킷 이름과 나머지 부분을 분리
-    bucket_and_rest = url_body.split(".s3.amazonaws.com/", 1)
-    if len(bucket_and_rest) != 2:
-        raise ValueError(f"Invalid S3 URL format: {s3_object_url}")
-    
-    bucket_name = bucket_and_rest[0]
-    object_key = bucket_and_rest[1]
-    
-    return bucket_name, object_key
+    s3_urls = []
+    try:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
 
-def download_from_s3(s3_object_url: str):
+        for page in pages:
+            if "Contents" in page:
+                for obj in page["Contents"]:
+                    key = obj["Key"]
+                    # S3 URL 생성
+                    s3_url = f"s3://{bucket_name}/{key}"
+                    s3_urls.append(s3_url)
+        
+        logger.info(f"{len(s3_urls)}개의 S3 URL을 찾았습니다.")
+        return s3_urls
+    
+    except Exception as e:
+        logger.error(f"S3 URL 가져오는 중 오류 발생: {e}")
+        raise
+
+def download_from_s3(s3_url: str, download_dir: str = "images") -> str:
     """
-    S3 URL로부터 이미지를 다운로드하여 메모리 상에서 처리.
+    S3 URL로부터 이미지를 다운로드하여 로컬 디렉토리에 저장.
     
     Args:
-        s3_object_url: S3 URL (예: https://bucket-name.s3.amazonaws.com/path/to/image.jpg)
+        s3_url: S3 URL
+        download_dir: 이미지 저장 디렉토리
+    
+    Returns:
+        str: 로컬 파일 경로
     """
     try:
-        bucket_name, object_key = parse_s3_object_url(s3_object_url)
-        response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
-        image_data = response['Body'].read()
-        image = Image.open(BytesIO(image_data))
-        return image
+        bucket_name, object_key = s3_url[5:].split("/", 1)
+        os.makedirs(download_dir, exist_ok=True)
+        local_file_path = os.path.join(download_dir, os.path.basename(object_key))
+        s3_client.download_file(bucket_name, object_key, local_file_path)
+        logger.info(f"Downloaded {object_key} to {local_file_path}")
+        return local_file_path
     except Exception as e:
-        logger.error(f"Failed to download image from S3: {e}")
-        return None
+        logger.error(f"Failed to download from S3: {e}")
+        raise
 
 class RAGMultiModalModel:
     """
@@ -250,7 +256,7 @@ class MultiModalRAG(RAGMultiModalModel):
             
         return cls._instance
 
-    def create_index(self, images: List[Image.Image], is_initial: bool = True):
+    def create_index(self, images: List[Image.Image], metadata: List[Dict] = None, is_initial: bool = True):
         """이미지 리스트로부터 인덱스 생성 및 임베딩 정보 반환
         
         Args:
@@ -279,6 +285,7 @@ class MultiModalRAG(RAGMultiModalModel):
                         input_path=temp_dir,
                         index_name="image_index",
                         store_collection_with_index=True,
+                        metadata=metadata,
                         overwrite=is_initial
                     )
                 finally:
@@ -287,10 +294,12 @@ class MultiModalRAG(RAGMultiModalModel):
             else:
                 # 기존 인덱스에 추가
                 for idx, image in enumerate(images):
+                    image_metadata = metadata[idx] if metadata else {"image_id": str(idx)}
                     self.model.add_to_index(
                         input_item=image,
                         store_collection_with_index=True,
-                        doc_id=str(idx)
+                        doc_id=str(idx),
+                        metadata=image_metadata
                     )
             
             # 이미지 임베딩 생성
@@ -299,6 +308,7 @@ class MultiModalRAG(RAGMultiModalModel):
             # MongoDB에 저장할 형태로 결과 구성
             result = []
             for idx, (embedding, image) in enumerate(zip(embeddings, images)):
+                image_metadata = metadata[idx] if metadata else {"image_id": str(idx)}
                 
                 # bfloat16을 float32로 변환 후 리스트로 변환
                 embedding_list = embedding.to(torch.float32).detach().cpu().numpy().tolist()
@@ -306,6 +316,7 @@ class MultiModalRAG(RAGMultiModalModel):
                 result.append({
                     "doc_id": str(idx),
                     "image_embedding": embedding_list,
+                    "metadata": image_metadata,
                     "status": "indexed"
                 })
             
@@ -323,55 +334,79 @@ def update_mongodb(collection, index_info):
 
     Args:
         collection: MongoDB 컬렉션
-        index_info: 생성된 인덱스 정보 (doc_id, image_embedding, metadata, status 포함)
+        index_info: 생성된 인덱스 정보 (doc_id, image_embedding, metadata 포함)
     """
     try:
         for record in index_info:
-            # 이미지 파일 이름을 기준으로 기존 document 검색
-            image_filename = record["metadata"].get("filename")
-            if not image_filename:
-                logger.warning("메타데이터에 filename이 없습니다. 건너뜁니다.")
-                continue
+            image_filename = record["metadata"]["filename"]
             
-            # MongoDB에서 해당하는 document 찾기
-            doc = collection.find_one({"images": f"https://noticehub.s3.amazonaws.com/images/{image_filename}"})
+            # "images" 필드에 {image_filename}이 존재하는지 확인
+            doc = collection.find_one({"images": {"$regex": f".*{image_filename}$"}})
             if not doc:
-                logger.warning(f"'{image_filename}'을 포함하는 document를 찾을 수 없습니다. 건너뜁니다.")
+                logger.warning(f"Document not found for {image_filename}. Skipping...")
                 continue
             
-            # MongoDB document 업데이트
             collection.update_one(
-                {"_id": doc["_id"]},  # 해당 document의 `_id` 기준
+                {"_id": doc["_id"]},
                 {"$set": {"image_embedding": record["image_embedding"]}}
             )
-            
             logger.info(f"Document 업데이트 완료: {doc['_id']} (이미지 파일: {image_filename})")
-    
-    except Exception as e:
-        logger.error(f"MongoDB 업데이트 중 오류 발생: {str(e)}")
-        raise
 
+    except Exception as e:
+        logger.error(f"MongoDB update failed: {e}")
+        raise
 
 def main():
     try:
-        # RAG 모델 초기화
+        # 1. S3에서 모든 URL 가져오기
+        bucket_name = "noticehub"
+        prefix = "images/"  # S3의 image 폴더
+        logger.info(f"{bucket_name} 버킷에서 {prefix} 경로의 객체를 검색 중...")
+        s3_urls = get_all_s3_urls(bucket_name, prefix)
+
+        if not s3_urls:
+            logger.error("S3에서 처리할 이미지 URL을 찾지 못했습니다.")
+            return
+        
+        logger.info(f"총 {len(s3_urls)}개의 S3 URL이 수집되었습니다.")
+        logger.debug(f"수집된 URL: {s3_urls}")
+
+      # 2. 이미지 다운로드 및 로드
+        image_dir = "images"
+        images = []
+        metadata = []
+        for idx, s3_url in enumerate(s3_urls):
+            try:
+                local_path = download_from_s3(s3_url, download_dir=image_dir)
+                image = Image.open(local_path)
+                images.append(image)
+                metadata.append({
+                    "image_id": str(idx),
+                    "filename": os.path.basename(local_path)
+                })
+            except Exception as e:
+                logger.error(f"Error processing {s3_url}: {e}")
+                continue
+
+        if not images:
+            logger.error("No images to process.")
+            return
+
+        # 3. RAG 모델 초기화
         rag = MultiModalRAG()
         logger.info("RAG 모델 호출 중...")
-        
-        documents = collection.find({"images": {"$exists": True}})
-        for doc in documents:
-            s3_object_url = doc["images"]
-            logger.info(f"Processing document {doc['_id']} with image {s3_object_url}")
-            image = download_from_s3(s3_object_url)
-            if image:
-                # 인덱스 생성 및 결과 반환
-                index_info = rag.create_index(image, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
-                logger.info("인덱싱 완료")
 
-                # MongoDB 업데이트
-                logger.info("MongoDB 업데이트 시작...")
-                update_mongodb(collection, index_info)
-                logger.info("MongoDB 업데이트 완료")
+        # 4. 인덱스 생성 및 결과 반환
+        logger.info(f"총 {len(images)}개 이미지 인덱싱 시작...")
+        index_info = rag.create_index(images, metadata, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
+        logger.info("인덱싱 완료")
+        # logger.info(f"생성된 인덱스 정보: {index_info}")
+
+        # 5. MongoDB 업데이트
+        logger.info("MongoDB 업데이트 시작...")
+        update_mongodb(collection, index_info)
+        logger.info("MongoDB 업데이트 완료")
+
     except Exception as e:
         logger.error(f"처리 중 오류 발생: {str(e)}")
         raise
