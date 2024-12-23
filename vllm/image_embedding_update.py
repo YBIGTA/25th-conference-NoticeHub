@@ -43,35 +43,41 @@ s3_client = boto3.client(
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
 
-
-def parse_s3_url(s3_url: str):
+def parse_s3_object_url(s3_object_url: str):
     """
-    S3 URL에서 버킷 이름과 객체 키를 추출.
+    S3 객체의 HTTPS URL에서 버킷 이름과 객체 키를 추출합니다.
+    
     Args:
-        s3_url (str): S3 URL (예: s3://bucket-name/path/to/object)
+        s3_object_url (str): S3 객체의 HTTPS URL (예: https://bucket-name.s3.amazonaws.com/path/to/image.jpg)
+    
     Returns:
         tuple: (bucket_name, object_key)
     """
-    if not s3_url.startswith("s3://"):
-        raise ValueError(f"Invalid S3 URL: {s3_url}")
+    if not s3_object_url.startswith("https://"):
+        raise ValueError(f"Invalid S3 URL: {s3_object_url}")
     
-    parts = s3_url[5:].split("/", 1)
-    if len(parts) < 2:
-        raise ValueError(f"Invalid S3 URL format: {s3_url}")
+    # 'https://' 이후의 부분을 추출
+    url_body = s3_object_url[8:]
     
-    bucket_name, object_key = parts[0], parts[1]
+    # 버킷 이름과 나머지 부분을 분리
+    bucket_and_rest = url_body.split(".s3.amazonaws.com/", 1)
+    if len(bucket_and_rest) != 2:
+        raise ValueError(f"Invalid S3 URL format: {s3_object_url}")
+    
+    bucket_name = bucket_and_rest[0]
+    object_key = bucket_and_rest[1]
+    
     return bucket_name, object_key
 
-
-def download_from_s3(s3_url: str):
+def download_from_s3(s3_object_url: str):
     """
     S3 URL로부터 이미지를 다운로드하여 메모리 상에서 처리.
     
     Args:
-        s3_url: S3 URL (예: https://your-bucket.s3.amazonaws.com/path/to/image.jpg)
+        s3_object_url: S3 URL (예: https://bucket-name.s3.amazonaws.com/path/to/image.jpg)
     """
     try:
-        bucket_name, object_key = parse_s3_url(s3_url)
+        bucket_name, object_key = parse_s3_object_url(s3_object_url)
         response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
         image_data = response['Body'].read()
         image = Image.open(BytesIO(image_data))
@@ -354,9 +360,9 @@ def main():
         
         documents = collection.find({"images": {"$exists": True}})
         for doc in documents:
-            s3_url = doc["images"]
-            logger.info(f"Processing document {doc['_id']} with image {s3_url}")
-            image = download_from_s3(s3_url)
+            s3_object_url = doc["images"]
+            logger.info(f"Processing document {doc['_id']} with image {s3_object_url}")
+            image = download_from_s3(s3_object_url)
             if image:
                 # 인덱스 생성 및 결과 반환
                 index_info = rag.create_index(image, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
