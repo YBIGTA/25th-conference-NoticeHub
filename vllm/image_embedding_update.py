@@ -39,61 +39,58 @@ s3_client = boto3.client(
     aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
 )
 
-
-def parse_s3_url(s3_url: str):
+def get_all_s3_urls(bucket_name: str, prefix: str = "") -> List[str]:
     """
-    S3 URL에서 버킷 이름과 객체 키를 추출.
+    S3 버킷의 특정 폴더(prefix)에 있는 모든 객체의 URL 리스트를 반환.
+    
     Args:
-        s3_url (str): S3 URL (예: s3://bucket-name/path/to/object)
+        bucket_name (str): S3 버킷 이름.
+        prefix (str): S3 객체 키의 접두사(폴더 경로).
+    
     Returns:
-        tuple: (bucket_name, object_key)
+        List[str]: S3 객체의 URL 리스트.
     """
-    if not s3_url.startswith("s3://"):
-        raise ValueError(f"Invalid S3 URL: {s3_url}")
-    
-    parts = s3_url[5:].split("/", 1)
-    if len(parts) < 2:
-        raise ValueError(f"Invalid S3 URL format: {s3_url}")
-    
-    bucket_name, object_key = parts[0], parts[1]
-    return bucket_name, object_key
+    s3_urls = []
+    try:
+        paginator = s3_client.get_paginator("list_objects_v2")
+        pages = paginator.paginate(Bucket=bucket_name, Prefix=prefix)
 
+        for page in pages:
+            if "Contents" in page:
+                for obj in page["Contents"]:
+                    key = obj["Key"]
+                    # S3 URL 생성
+                    s3_url = f"s3://{bucket_name}/{key}"
+                    s3_urls.append(s3_url)
+        
+        logger.info(f"{len(s3_urls)}개의 S3 URL을 찾았습니다.")
+        return s3_urls
+    
+    except Exception as e:
+        logger.error(f"S3 URL 가져오는 중 오류 발생: {e}")
+        raise
 
-def download_from_s3(s3_url: str, download_dir: str = "images"):
+def download_from_s3(s3_url: str, download_dir: str = "images") -> str:
     """
     S3 URL로부터 이미지를 다운로드하여 로컬 디렉토리에 저장.
     
     Args:
-        s3_url: S3 URL (예: https://your-bucket.s3.amazonaws.com/path/to/image.jpg)
+        s3_url: S3 URL
         download_dir: 이미지 저장 디렉토리
+    
+    Returns:
+        str: 로컬 파일 경로
     """
     try:
-        # URL에서 버킷 이름과 키 추출
-        # S3 URL 파싱
-        bucket_name, object_key = parse_s3_url(s3_url)
-
-        # 다운로드 디렉토리 확인 및 생성
+        bucket_name, object_key = s3_url[5:].split("/", 1)
         os.makedirs(download_dir, exist_ok=True)
-
-        # 로컬 파일 경로
         local_file_path = os.path.join(download_dir, os.path.basename(object_key))
-
-        # S3에서 파일 다운로드
-        logger.info(f"Downloading {object_key} from bucket {bucket_name} to {local_file_path}")
         s3_client.download_file(bucket_name, object_key, local_file_path)
-
-        logger.info(f"File saved to {local_file_path}")
+        logger.info(f"Downloaded {object_key} to {local_file_path}")
         return local_file_path
-    
-    except NoCredentialsError:
-        logger.error("AWS credentials not found")
-        raise Exception("AWS credentials not found")
-    except ClientError as e:
-        logger.error(f"Failed to download file from S3: {e}")
-        raise Exception(f"Failed to download file from S3: {e}")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
-        raise Exception(f"Unexpected error: {e}")
+        logger.error(f"Failed to download from S3: {e}")
+        raise
 
 class RAGMultiModalModel:
     """
@@ -337,107 +334,75 @@ def update_mongodb(collection, index_info):
 
     Args:
         collection: MongoDB 컬렉션
-        index_info: 생성된 인덱스 정보 (doc_id, image_embedding, metadata, status 포함)
+        index_info: 생성된 인덱스 정보 (doc_id, image_embedding, metadata 포함)
     """
     try:
         for record in index_info:
-            # 이미지 파일 이름을 기준으로 기존 document 검색
-            image_filename = record["metadata"].get("filename")
-            if not image_filename:
-                logger.warning("메타데이터에 filename이 없습니다. 건너뜁니다.")
-                continue
+            image_filename = record["metadata"]["filename"]
             
-            # MongoDB에서 해당하는 document 찾기
-            doc = collection.find_one({"images": f"https://noticehub.s3.amazonaws.com/images/{image_filename}"})
+            # "images" 필드에 {image_filename}이 존재하는지 확인
+            doc = collection.find_one({"images": {"$regex": f".*{image_filename}$"}})
             if not doc:
-                logger.warning(f"'{image_filename}'을 포함하는 document를 찾을 수 없습니다. 건너뜁니다.")
+                logger.warning(f"Document not found for {image_filename}. Skipping...")
                 continue
             
-            # 업데이트할 데이터
-            update_data = {
-                "image_embedding": record["image_embedding"]
-            }
-            
-            # MongoDB document 업데이트
             collection.update_one(
-                {"_id": doc["_id"]},  # 해당 document의 `_id` 기준
-                {"$set": update_data}
+                {"_id": doc["_id"]},
+                {"$set": {"image_embedding": record["image_embedding"]}}
             )
-            
             logger.info(f"Document 업데이트 완료: {doc['_id']} (이미지 파일: {image_filename})")
-    
-    except Exception as e:
-        logger.error(f"MongoDB 업데이트 중 오류 발생: {str(e)}")
-        raise
 
+    except Exception as e:
+        logger.error(f"MongoDB update failed: {e}")
+        raise
 
 def main():
     try:
-        # 1. 명령줄 인자로 S3 URL 리스트 받기
-        if len(sys.argv) < 2:
-            logger.error("S3 URL 리스트가 전달되지 않았습니다.")
-            print("Usage: python script_name.py <s3_url1> <s3_url2> ...")
-            sys.exit(1)
+        # 1. S3에서 모든 URL 가져오기
+        bucket_name = "noticehub"
+        prefix = "images/"  # S3의 image 폴더
+        logger.info(f"{bucket_name} 버킷에서 {prefix} 경로의 객체를 검색 중...")
+        s3_urls = get_all_s3_urls(bucket_name, prefix)
 
-        # JSON 배열 파싱
-        try:
-            s3_urls = json.loads(sys.argv[1])
-            if not isinstance(s3_urls, list):
-                raise ValueError("JSON 데이터는 배열 형식이어야 합니다.")
-        except json.JSONDecodeError as e:
-            logger.error("JSON 파싱 중 오류 발생")
-            sys.exit(1)
-
-        # 3. 테스트용 이미지 디렉토리의 모든 이미지 파일 찾기
-        image_dir = "images"
-        for url in s3_urls:
-            try:
-                # S3 URL로부터 이미지 다운로드
-                download_from_s3(url, download_dir=image_dir)
-            except Exception as e:
-                logger.error(f"S3에서 이미지 다운로드 중 오류 발생 ({url}): {str(e)}")
-                continue
-
-        image_paths = []
-        for ext in ['*.png', '*.jpg', '*.jpeg', '*.gif']:
-            image_paths.extend(Path(image_dir).glob(ext))
-
-        if not image_paths:
-            logger.error(f"{image_dir} 디렉토리에 이미지 파일이 없습니다.")
+        if not s3_urls:
+            logger.error("S3에서 처리할 이미지 URL을 찾지 못했습니다.")
             return
+        
+        logger.info(f"총 {len(s3_urls)}개의 S3 URL이 수집되었습니다.")
+        logger.debug(f"수집된 URL: {s3_urls}")
 
-        # 4. 이미지와 메타데이터 준비
+      # 2. 이미지 다운로드 및 로드
+        image_dir = "images"
         images = []
         metadata = []
-        for idx, path in enumerate(image_paths):
+        for idx, s3_url in enumerate(s3_urls):
             try:
-                image = Image.open(path)
+                local_path = download_from_s3(s3_url, download_dir=image_dir)
+                image = Image.open(local_path)
                 images.append(image)
                 metadata.append({
                     "image_id": str(idx),
-                    "filename": path.name
+                    "filename": os.path.basename(local_path)
                 })
-                logger.info(f"이미지 로드 완료: {path.name}")
             except Exception as e:
-                logger.error(f"이미지 로드 중 오류 발생 ({path}): {str(e)}")
+                logger.error(f"Error processing {s3_url}: {e}")
                 continue
 
         if not images:
-            logger.error("처리할 이미지가 없습니다.")
+            logger.error("No images to process.")
             return
 
-        # 2. RAG 모델 초기화
+        # 3. RAG 모델 초기화
         rag = MultiModalRAG()
         logger.info("RAG 모델 호출 중...")
 
         # 4. 인덱스 생성 및 결과 반환
         logger.info(f"총 {len(images)}개 이미지 인덱싱 시작...")
         index_info = rag.create_index(images, metadata, is_initial=True)  # 테스트를 위해 초기 인덱스 생성
-
         logger.info("인덱싱 완료")
         # logger.info(f"생성된 인덱스 정보: {index_info}")
 
-        # MongoDB 업데이트
+        # 5. MongoDB 업데이트
         logger.info("MongoDB 업데이트 시작...")
         update_mongodb(collection, index_info)
         logger.info("MongoDB 업데이트 완료")
@@ -445,7 +410,6 @@ def main():
     except Exception as e:
         logger.error(f"처리 중 오류 발생: {str(e)}")
         raise
-
 
 if __name__ == "__main__":
     main()

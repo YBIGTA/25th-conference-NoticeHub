@@ -12,6 +12,7 @@ import os
 from langchain_openai import OpenAI
 import logging
 from langchain_core.runnables import RunnablePassthrough
+from langchain_mongodb.retrievers.hybrid_search import MongoDBAtlasHybridSearchRetriever
 
 
 # 로깅 설정
@@ -37,7 +38,7 @@ try:
     
     mongo_client = MongoClient(mongo_path)
     db = mongo_client["notice-db"]
-    collection = db["test_embedded"]
+    collection = db["final_notices"]
     
     # OpenAI Embeddings 초기화
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
@@ -45,12 +46,25 @@ try:
     
     # Vector Store 초기화
     vector_store = MongoDBAtlasVectorSearch(
-        collection=collection,
-        embedding=embeddings,
-        index_name="vector_index",
-        text_key="context" 
-    )
+            collection=collection,
+            embedding=embeddings,
+            index_name="vector_index",
+            text_key="context",
+            embedding_key="embedding",
+            metadata_field_keys=["title", "department", "date", "link"],
+            relevance_score_fn = "cosine"
+        )
     logger.info("Vector store initialized")
+    
+    retriever = MongoDBAtlasHybridSearchRetriever(
+    vectorstore = vector_store,        # Vector store instance
+    search_index_name = "default",  # Name of the Atlas Search index
+    top_k = 10,                           # Number of documents to return
+    fulltext_penalty = 5.0,             # Penalty for full-text search
+    vector_penalty = 20.0                # Penalty for vector search
+    )
+
+    logger.info("Retriever 설정 완료")
 
 except Exception as e:
     logger.error(f"Error during MongoDB setup: {str(e)}", exc_info=True)
@@ -61,51 +75,36 @@ PROMPT_TEMPLATE = ChatPromptTemplate.from_messages([
     (
         "system",
         """You are an AI assistant specializing in Question-Answering (QA) tasks within a Retrieval-Augmented Generation (RAG) system. 
-Your primary mission is to answer questions based on provided context or chat history.
+Our primary mission is to answer questions based on provided context or chat history.
 Ensure your response is concise and directly addresses the question without any additional narration.
-
 ###
-
 You may consider the previous conversation history to answer the question.
-
 # Here's the previous conversation history:
 {chat_history}
-
 ###
-
 Your final answer should be written concisely (but include important numerical values, technical terms, jargon, and names), followed by the source of the information.
-
 # Steps
-
 1. Carefully read and understand the context provided.
 2. Identify the key information related to the question within the context.
 3. Formulate a concise answer based on the relevant information.
 4. Ensure your final answer directly addresses the question.
 5. List the source of the answer in bullet points, which must be a file name (with a page number) or URL from the context. Omit if the answer is based on previous conversation or if the source cannot be found.
-
 # Output Format:
-[Your final answer here, with numerical values, technical terms, jargon, and names in their original language]
-
+Your final answer here, with numerical values, technical terms, jargon, and names in their original language
 **Source**(Optional)
-- (Source of the answer, must be a file name(with a page number) or URL from the context. Omit if the answer is based on previous conversation or can't find the source.)
-- (list more if there are multiple sources)
-- ...
-
+(Source of the answer, must be a file name(with a page number) or URL from the context. Omit if the answer is based on previous conversation or can't find the source.)
+(list more if there are multiple sources)
+...
 ###
-
 Remember:
-- It's crucial to base your answer solely on the **provided context** or **chat history**. 
-- DO NOT use any external knowledge or information not present in the given materials.
-- If a user asks based on the previous conversation, but if there's no previous conversation or not enough information, you should answer that you don't know.
-
+It's crucial to base your answer solely on the **provided context** or **chat history**. 
+DO NOT use any external knowledge or information not present in the given materials.
+If a user asks based on the previous conversation, but if there's no previous conversation or not enough information, you should answer that you don't know.
 ###
-
 # Here is the user's question:
 {question}
-
 # Here is the context that you should use to answer the question:
 {context}
-
 # Your final answer to the user's question:"""
     ),
     MessagesPlaceholder(variable_name="chat_history"),
