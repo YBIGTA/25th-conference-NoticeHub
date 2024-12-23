@@ -7,9 +7,9 @@ body {
   justify-content: center;
   align-items: center;
   height: 100vh;
-  width: 100vw; /* 화면 전체 너비 , 수정중 */
-  box-sizing: border-box; /* 여백 포함 계산 */
-  padding : 20px; /* 전체 여백 */
+  width: 100vw;
+  box-sizing: border-box;
+  padding: 20px;
 }
 
 .container {
@@ -18,20 +18,21 @@ body {
   align-items: center;
   height: 100%;
   width: 100%;
-  transition: opacity 0.5s ease; /* 화면 전환 애니메이션 */
-  max-width: calc(100vw - 40px); /* 가로 20px씩 margin */
-  max-height: calc(100vh - 40px); /* 세로 20px씩 margin */
-  box-sizing: border-box; /* 여백 포함 계산 */
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px);
+  box-sizing: border-box;
+  transition: opacity 0.5s ease;
 }
 
 .fade-in {
-  opacity: 1; /* 화면이 보이는 상태 */
+  opacity: 1;
 }
 
 .fade-out {
-  opacity: 0; /* 화면이 사라지는 상태 */
+  opacity: 0;
 }
 
+/* 카드 스타일 */
 .card {
   text-align: center;
   background-color: #ffffff;
@@ -42,6 +43,7 @@ body {
   transition: opacity 0.5s ease, transform 0.5s ease;
 }
 
+/* 아바타 */
 .avatar {
   margin-bottom: 20px;
   position: relative;
@@ -55,7 +57,10 @@ body {
   transition: transform 0.5s ease;
 }
 
-/* gif 적용 시 사용 예정*/
+.avatar.rotate .avatar-img {
+  animation: rotateAvatar 1s ease-in-out;
+}
+
 @keyframes rotateAvatar {
   0% {
     transform: rotate(0deg);
@@ -65,10 +70,7 @@ body {
   }
 }
 
-.avatar.rotate .avatar-img {
-  animation: rotateAvatar 1s ease-in-out;
-}
-
+/* 카드 텍스트 */
 .title {
   font-size: 1.5rem;
   margin-bottom: 10px;
@@ -82,7 +84,7 @@ body {
   line-height: 1.5;
 }
 
-/* 파도 애니메이션 버튼 */
+/* 버튼 */
 .start-btn {
   position: relative;
   background-color: #4f66f1;
@@ -100,7 +102,6 @@ body {
   background-color: #3d52d0;
 }
 
-/* 파도 효과 */
 .start-btn::after {
   content: "";
   position: absolute;
@@ -117,184 +118,150 @@ body {
 
 .start-btn:hover::after {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(20); /* 파도가 퍼지는 효과 */
+  transform: translate(-50%, -50%) scale(20);
 }
 
 .start-btn:active::after {
-  transform: translate(-50%, -50%) scale(15); /* 클릭 시 약간 더 작게 */
+  transform: translate(-50%, -50%) scale(15);
 }
 
-/*전체 레이아웃: Grid 기반 */
+/* 채팅 컨테이너 */
 .chat-container {
   display: grid;
-  grid-template-rows: 1fr auto;   /* 메시지 영역과 입력 필드 영역 나눔 */
-  height: 100vh; /* 화면 전체 높이*/
-  width: 100vw; /*화면 전체 너비 */
+  grid-template-rows: 1fr auto;
+  height: 100vh;
+  width: 100vw;
   background-color: #ffffff;
   margin: 0;
-  box-sizing: border-box; /* 여백 포함 계산 */
-} 
-
-
-/* 사용자 메시지 (오른쪽 정렬) */
-.user-message {
-  align-self: flex-end; /* 메시지를 부모의 오른쪽 끝으로 정렬 */
-  background-color: #e8e8e8; /* 사용자 메시지 배경색 */
-  color: #333333; /* 텍스트 색상 */
-  padding: 10px 15px; /* 내부 여백 */
-  border-radius: 20px; /* 둥근 모서리 */
-  font-size: 1rem; /* 글자 크기 */
-  max-width: 70%; /* 최대 너비 */
-  word-wrap: break-word; /* 긴 단어 줄바꿈 */
-  /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); */
-  margin-bottom: 10px; /* 메시지 간격 */
+  box-sizing: border-box;
 }
 
-/* 봇 메시지 (왼쪽 정렬) */
-.bot-message {
-  align-self: flex-start; /* 메시지를 부모의 왼쪽 끝으로 정렬 */
-  background-color: #ffffff; /* 봇 메시지 배경색 */
-  color: #333333; /* 텍스트 색상 */
-  padding: 10px 15px; /* 내부 여백 */
-  border-radius: 20px; /* 둥근 모서리 */
-  font-size: 1rem; /* 글자 크기 */
-  max-width: 70%; /* 최대 너비 */
-  word-wrap: break-word; /* 긴 단어 줄바꿈 */
-  /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);  */
-  margin-bottom: 10px; /* 메시지 간격 */
-}
-
-/* 부모 컨테이너 */
+/* 채팅 메시지 */
 .chat-messages {
   display: flex;
-  flex-direction: column; /* 메시지를 세로로 정렬 */
-  gap: 10px; /* 메시지 간 간격 */
+  flex-direction: column;
+  gap: 10px;
 }
+
+.user-message {
+  align-self: flex-end;
+  background-color: #e8e8e8;
+  color: #333333;
+  padding: 10px 15px;
+  border-radius: 20px;
+  font-size: 1rem;
+  max-width: 70%;
+  word-wrap: break-word;
+  margin-bottom: 10px;
+}
+
+.bot-message {
+  align-self: flex-start;
+  background-color: #ffffff;
+  color: #333333;
+  padding: 10px 15px;
+  border-radius: 20px;
+  font-size: 1rem;
+  max-width: 70%;
+  word-wrap: break-word;
+  margin-bottom: 10px;
+}
+
+/* 봇 메시지 아이콘 */
 .bot-message-icon {
-  flex-shrink: 0; /* 아이콘 크기 고정 */
-  margin-right: 10px; /* 아이콘과 텍스트 간격 */
-  width: 40px; /* 아이콘 크기 */
-  height: 40px; /* 아이콘 크기 */
-  border-radius: 50%; /* 원형 아이콘 */
-  overflow: hidden; /* 이미지가 원형을 벗어나지 않도록 설정 */
+  flex-shrink: 0;
+  margin-right: 10px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
 }
 
 .bot-message-icon img {
-  width: 100%; /* 아이콘 이미지를 컨테이너 크기에 맞춤 */
+  width: 100%;
   height: 100%;
-  object-fit: cover; /* 이미지 비율 유지 */
-}
-
-/* 입력 필드 영역 */
-.chat-input-container {
-  display: flex;
-  position: relative; /* 버튼 위치를 컨테이너 기준으로 고정 */
-  align-items: center;
-  background-color: #f4f4f4; /* 박스 배경 색 */
-  border-radius: 25px; /* 둥근 모서리 */
-  padding: 10px 15px; /* 내부 여백 */
-  margin: 10px; /* 외부 여백 */
-  width: 100%; /* 전체 너비 */
-  box-sizing: border-box; /* 여백 포함 계산 */
-  padding: 10px; /* 전체 패딩 */
-  gap : 10px; /* 입력 필드와 버튼 간격 */
+  object-fit: cover;
 }
 
 /* 입력 필드 */
+.chat-input-container {
+  display: flex;
+  position: relative;
+  align-items: center;
+  background-color: #f4f4f4;
+  border-radius: 25px;
+  padding: 10px 15px;
+  margin: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  gap: 10px;
+}
+
 .chat-input-container textarea {
   flex-grow: 1;
-  width: calc(100% - 50px); /* button 부분 제외 최대  */
+  width: calc(100% - 50px);
   border: none;
   background: transparent;
   font-size: 1rem;
-  padding: 0px;
+  padding: 0;
   outline: none;
   color: #333;
   min-height: 40px;
   max-height: 150px;
   overflow-y: auto;
   resize: none;
-  /* border-radius: 15px; */
-  background-color: none;
-  box-shadow: none;
- 
 }
 
-.chat-input-container textarea:focus {
-  background-color: transparent; 
-}
-
-.chat-input-container textarea::-webkit-scrollbar {
-  width: 6px;
-}
-
-.chat-input-container textarea::-webkit-scrollbar-thumb {
-  background-color: #ffffff;
-  border-radius: 3px;
-}
-
-.chat-input-container textarea::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-
-/* 전송 버튼 */
-/* 버튼 스타일 */
 .chat-input-container button {
-  background-color: #f4f4f4; /* 버튼 배경색 */
-  border: none; /* 테두리 제거 */
-  right: 10px; /* 오른쪽 여백 */
-  bottom: 10px; /* 아래쪽 여백 */
-
-  color: #ffffff; /* 화살표 아이콘 색상 */
-  position: absolute; /* 버튼 위치 고정 */
-  width: 40px; /* 버튼 너비 */
-  height: 40px; /* 버튼 높이 */
-  border-radius: 50%; /* 둥근 버튼 */
+  background-color: #f4f4f4;
+  border: none;
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  color: #ffffff;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer; /* 포인터 표시 */
-  font-size: 1.2rem; /* 화살표 크기 */
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* 약간의 그림자 효과 */
-  transition: background-color 0.3s ease, transform 0.2s ease; /* 애니메이션 */
+  cursor: pointer;
+  font-size: 1.2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: background-color 0.3s ease, transform 0.2s ease;
 }
 
 .chat-input-container button:hover {
-  background-color: #3d52d0; /* 호버 시 색상 */
+  background-color: #3d52d0;
 }
 
 .chat-input-container button:active {
-  transform: scale(0.95); /* 클릭 시 약간 축소 */
+  transform: scale(0.95);
 }
 
-/* 화살표 아이콘 */
 .chat-input-container button::before {
-  content: "➤"; /* 화살표 문자 */
-  display: block;
-  transform: rotate(0deg); /* 기본 방향 */
+  content: "➤";
 }
 
-/*로고*/
+/* 로고 */
 .chat-title {
   font-size: 1.5rem;
   margin: 10px 0;
-  text-align: left; /* 텍스트 왼쪽 정렬 */
+  text-align: left;
   color: #333333;
-  padding-left: 20px; /* 텍스트를 오른쪽으로 이동 */
+  padding-left: 20px;
 }
 
-
-/* 반응형 디자인: 작은 화면 */
+/* 반응형 디자인 */
 @media (max-aspect-ratio: 1/1) {
   .chat-box {
-    padding: 3%; /* 세로 화면에서는 더 넓은 여백 */
-    gap: 2%; /* 메시지 간 간격 증가 */
+    padding: 3%;
+    gap: 2%;
   }
 
   .chat-message {
-    font-size: calc(0.8rem + 1vw); /* 작은 화면에서는 글자 크기 키움 */
-    max-width: 85%; /* 메시지 최대 너비 증가 */
+    font-size: calc(0.8rem + 1vw);
+    max-width: 85%;
   }
 
   .chat-input {
@@ -306,24 +273,15 @@ body {
   }
 
   .chat-input-container {
-    gap: 5px; /* 작은 화면에서 입력창과 버튼 사이 간격 줄이기 */
+    gap: 5px;
   }
 
   .chat-input-container textarea {
-    font-size: 0.9rem; /* 작은 화면에서 입력 필드 글자 크기 조정 */
-  }
-  .chat-input-container button {
-    height: 35px; /* 작은 화면에서 버튼 높이 줄이기 */
-    font-size: 1rem; /* 작은 화면에서 버튼 텍스트 크기 조정 */
+    font-size: 0.9rem;
   }
 
-  /* @font-face {
-    font-family: "GowunDodum-Regular";
-    font-weight: normal;
-    src: url("./assets/fonts/NanumSquareR.ttf") format("truetype");
+  .chat-input-container button {
+    height: 35px;
+    font-size: 1rem;
   }
-  
-  body {
-    font-family: "GowunDodum-Regular", sans-serif !important;; /* 기본 폰트 */
-  }
-/*} */
+}
