@@ -28,7 +28,7 @@ function App() {
           </div>
           <h1 className="title">Notice Hub</h1>
           <p className="description">
-            If you have any questions, <br />
+            연세 - 대학교 정보 봇 <br />
             Start chatting!
           </p>
           <button className="start-btn" onClick={handleStartClick}>
@@ -47,18 +47,49 @@ function ChatPage() {
   const [input, setInput] = useState("");
   const [sessionId, setSessionId] = useState("");
 
-  // 세션 ID를 생성하고 설정
   useEffect(() => {
     const id = uuidv4();
     setSessionId(id);
-    console.log("Generated Session ID:", id); // 디버깅용
+    console.log("Generated Session ID:", id);
   }, []);
 
+  const convertLinksToHtml = (text) => {
+    // Replace "**bold text**" with <b>bold text</b>
+    const boldTextRegex = /\*\*(.*?)\*\*/g;
+    const textWithBold = text.replace(boldTextRegex, "<b>$1</b>");
+    
+    // Replace "[자세히 보기](URL)" with a styled hyperlink
+    const formattedLinksText = textWithBold.replace(
+      /\[자세히 보기\]\((https?:\/\/[^\s]+)\)/g,
+      (_, url) =>
+        `<br><a href="${url}" target="_blank" rel="noopener noreferrer">자세히 보기</a><br>`
+    );
+  
+    // Automatically convert standalone URLs into hyperlinks with a default label
+    const urlRegex = /(\bhttps?:\/\/[^\s]+\b)/g;
+    const formattedTextWithUrls = formattedLinksText.replace(
+      urlRegex,
+      (url) =>
+        `<a href="${url}" target="_blank" rel="noopener noreferrer">링크 보기</a>` // Use a friendly label
+    );
+  
+    // Add newline before each numbered point (1., 2., 3., ...)
+    const numberedPointRegex = /(\d\.\s)/g;
+    return formattedTextWithUrls.replace(numberedPointRegex, "<br>$1");
+  };
+  
   const handleInputChange = (e) => {
     setInput(e.target.value);
     const target = e.target;
     target.style.height = "auto";
     target.style.height = `${Math.min(target.scrollHeight, 150)}px`;
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   const handleSend = async () => {
@@ -68,14 +99,14 @@ function ChatPage() {
     setInput("");
 
     try {
-      const response = await fetch("http://43.201.55.1:8080/request_rag", {
+      const response = await fetch("http://43.201.55.1:8080/request_rag/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           question: input,
-          session_id: sessionId, // 동적으로 생성된 세션 ID 사용
+          session_id: sessionId,
         }),
       });
 
@@ -87,7 +118,10 @@ function ChatPage() {
       }
 
       const data = await response.json();
-      const botMessage = { sender: "bot", text: data.reply };
+      const botMessage = {
+        sender: "bot",
+        text: convertLinksToHtml(data.data.answer || "No answer available."),
+      };
       setMessages((prev) => [...prev, botMessage]);
     } catch (error) {
       console.error("Fetch error details:", error);
@@ -101,7 +135,10 @@ function ChatPage() {
 
   return (
     <div className="chat-container">
-      <h1 className="chat-title">Notice HUB</h1>
+      <div className="chat-header">
+        <h1 className="chat-title">Notice HUB</h1>
+        <hr className="chat-divider" />
+      </div>
       <div className="chat-box">
         <div className="chat-messages">
           {messages.map((msg, index) => (
@@ -119,7 +156,10 @@ function ChatPage() {
                   />
                 </div>
               )}
-              <div className="message-text">{msg.text}</div>
+              <div
+                className="message-text"
+                dangerouslySetInnerHTML={{ __html: msg.text }}
+              ></div>
             </div>
           ))}
         </div>
@@ -129,6 +169,7 @@ function ChatPage() {
             placeholder="Type your message..."
             value={input}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
             rows={1}
             style={{ resize: "none", overflowY: "auto" }}
           />
